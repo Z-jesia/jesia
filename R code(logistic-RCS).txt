@@ -1,0 +1,83 @@
+#Table 1 code
+rm(list = ls())
+library(tableone)
+library(survival)
+library(openxlsx)
+data <- read.xlsx('D:/hypertension.xlsx')# 读取数据
+tab1 <- CreateTableOne(data = data)
+print(tab1)
+dput(names(data)) 
+myVars <- c("ID", "Birth.Year", "age", "SBP", "DBP","Pulse", "Height", "Weight.Measurement",  "Waist.Measurement", "White.Blood.Cell.in.Thousands", "MCV","Platelets","BUN","Glucose","TC","TG","HDL","LDL","CRP","Hba1c","UA","Hematocrit","eGFR2011","2015eGFR","HB","Cys","time","BMI","CVAI","LAP","TYG")
+catVars <- c("Education", "Marital", "Gender", "smoke","drink","2013die","2015die","2018die","die","2011hypertension","2011heart.disease","2011Kidney.Diease","Dyslipidemia2011","Disabetes.or.High.Blood.Sugar2011","Stroke2011","egfr.down","2013hypertension","2015hypertension","2018hypertension","long.hypertension")
+## Create a TableOne object
+tab2 <- CreateTableOne(vars = myVars, data = data, factorVars = catVars)
+print(tab2, showAllLevels = TRUE)
+biomarkers <- c("SBP", "DBP","Weight.Measurement",  "Waist.Measurement","White.Blood.Cell.in.Thousands", "MCV","Platelets","BUN","Glucose","TG","CRP","Hba1c","UA","Hematocrit","eGFR2011","2015eGFR","HB","Cys","BMI","CVAI","LAP","TYG","TYGBMI")
+print(tab2, nonnormal = biomarkers)
+tab4 <- CreateTableOne(vars = myVars, strata = "long.hypertension" , data = data, factorVars = catVars,
+                     addOverall = TRUE )
+print(tab4, nonnormal = biomarkers, exact = catVars)
+tab4Mat <- print(tab4, nonnormal = biomarkers, exact = catVars, quote = FALSE, noSpaces = TRUE, printToggle = FALSE, showAllLevels = TRUE)
+write.csv(tab4Mat, "D:/table1.csv")
+
+
+#Logistic regression
+install.packages("autoReg")
+library("autoReg")
+overall.log <- glm(long.hypertension ~ age + Gender + Education + Marital + smoke +
+                                           drink + SBP + CVAI + TyG ,data=data,family=long.hypertension) 
+                                           #“~”前为因变量，“~”后为自变量
+summary(overall.log)
+model1<-autoReg(overall.log,uni=TRUE,multi=FALSE,threshold=0.05)
+model1
+model2<-autoReg(overall.log,uni=FALSE,milti=TRUE,threshold=0.05)
+model2
+model3<-autoReg(overall.log,uni=TRUE,milti=TRUE,threshold=0.05)
+model3
+
+
+#RCS
+
+library(smoothHR)
+library(survival)
+library(rms)
+library(Hmisc)
+RCS <- read.csv("RCS.csv")
+for (i in 3:7) {
+  fit <- glm(group~rcs(CVAI,nk=i)+Age+gender+drink+smoke+education+matrial+SBP,data=RCS, family = binomial())
+  tmp <- extractAIC(fit)
+  if(i == 3) {AIC = tmp[2]; nk = 3}
+  if(tmp[2] < AIC) {AIC = tmp[2]; nk = i} } 
+fit <- lrm(group~rcs(BMI,nk=nk)+Age+gender+drink+smoke+education+matrial+SBP, data=RCS, x=TRUE,y=TRUE)
+anova(fit)
+p <-round(anova(fit)[,3],3)
+refvalue <- 85.89
+ddist<-datadist(RCS)
+ddist$limits$BMI[2]<-refvalue
+options(datadist="ddist")
+pred_OR<-Predict(fit,CVAI,ref.zero=TRUE,fun=exp)
+violet <- "#89439B"
+par(mar = c(5, 4, 4, 4) + 0.3)
+par(xpd=NA)
+ylim.bot<-min(pred_OR[,"lower"])
+ylim.top<-max(pred_OR[,"upper"])
+dens <- density(RCS$CVAI) 
+plot(dens$x,dens$y, col=ggplot2::alpha(violet,0.5), type="l", xlab = "", ylab = "",xaxt="n",yaxt="n")
+polygon(dens$x,dens$y,col = ggplot2::alpha(violet,0.5),border = ggplot2::alpha(violet,0.5)) 
+par(new=TRUE) #
+plot(pred_OR[,1],pred_OR[,"yhat"], 
+     xlab = "CVAI",ylab = paste0("OR where the refvalue for CVAI is ",refvalue),
+     type = "l",ylim = c(ylim.bot,ylim.top),
+     col="red",lwd=2) 
+lines(pred_OR[,1],pred_OR[,"lower"],lty=2,lwd=1.5)
+lines(pred_OR[,1],pred_OR[,"upper"],lty=2,lwd=1.5)
+lines(x=range(pred_OR[,1]),y=c(1,1),lty=3,col="grey40",lwd=1.3) #
+points(refvalue,1,pch=16,cex=1.2)
+text(refvalue + 2, 1.1, paste0("refvalue = ",refvalue)) 
+legend("topright",
+       paste0("P-overall ",ifelse(round(p[1],3) < 0.001,"< 0.001",round(p[1],3)),
+              "\nP-non-linear = ",ifelse(round(p[2],3) < 0.001,"< 0.001",round(p[2],3))),
+       bty="n",cex=0.8)
+legend("bottomleft",lty = c(1,2),col = c("red","black"),
+       c("Estimation","95% CI"),
+       bty="n",cex=0.8)
